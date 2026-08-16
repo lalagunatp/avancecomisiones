@@ -328,11 +328,30 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--linea);font-s
     <p class="pie-nota" style="margin-top:12px">Consulta tus instalaciones por semana y por mes, en qué punto va tu comisión y si ganaste bono. Cada quien ve únicamente sus propias cuentas.</p>
   </div>
 
-  <div class="entrada">
-    <label for="homologado">Escribe tu número homologado</label>
-    <input id="homologado" type="text" inputmode="numeric" autocomplete="off"
+  <div class="entrada" id="pasoNumero">
+    <label for="numEmpleado">Escribe tu número de empleado</label>
+    <input id="numEmpleado" type="text" inputmode="numeric" autocomplete="off"
            autocapitalize="characters" spellcheck="false" placeholder="0000000">
-    <button class="btn" id="btnEntrar">Ver mi avance</button>
+    <button class="btn" id="btnSiguienteNumero">Continuar</button>
+  </div>
+
+  <div class="entrada oculto" id="pasoPin">
+    <label for="pinActual">Escribe tu PIN</label>
+    <input id="pinActual" type="password" inputmode="numeric" autocomplete="off"
+           maxlength="4" placeholder="••••">
+    <button class="btn" id="btnEntrarPin">Ver mi avance</button>
+    <button class="btn sec" id="btnCambiarNumero" style="margin-top:8px">Usar otro número</button>
+  </div>
+
+  <div class="entrada oculto" id="pasoNuevoPin">
+    <label for="pinNuevo1">Crea tu PIN personal (4 dígitos)</label>
+    <input id="pinNuevo1" type="password" inputmode="numeric" autocomplete="off"
+           maxlength="4" placeholder="••••">
+    <label for="pinNuevo2" style="margin-top:10px">Confírmalo</label>
+    <input id="pinNuevo2" type="password" inputmode="numeric" autocomplete="off"
+           maxlength="4" placeholder="••••">
+    <button class="btn" id="btnGuardarPin">Guardar mi PIN</button>
+    <p class="pie-nota" style="margin-top:10px">Debe ser distinto a tu número de empleado y al PIN precargado, sin dígitos repetidos ni consecutivos (ej. 1234).</p>
   </div>
 
   <div id="aviso" role="alert"></div>
@@ -512,27 +531,23 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--linea);font-s
 /* ==============================================================
    CONFIGURACIÓN — lo único que normalmente hay que tocar
    ============================================================== */
-const ID_HOJA   = '1yPWPzW_EQOWCzTlLynrjGBMGNd3mwRawf8wEV3L1fwQ';
-const GID_HOJA  = '0';      // pestaña del archivo (se ve en la barra de direcciones)
-/* Base histórica de rankings, en el mismo archivo. La fila de encabezados
-   es la 4 (arriba hay un título), así que se leen sin encabezado. */
-const GID_RANKING  = '90654776';    // pestaña RANKING
-const GID_RANK_ENT = '637530813';   // pestaña RANKING ENTRENAMIENTO
-const FILA_ENCABEZADO = 4;          // dónde están los nombres de columna
-const COL_CLAVE = 'C';      // columna del NÚMERO HOMOLOGADO
+/* La app ya no conoce los IDs de las hojas: todo pasa por el backend de
+   Apps Script (apps-script/Codigo.gs), que es el único lugar donde viven.
+   Aquí solo quedan los nombres cortos de pestaña y las columnas a pedir. */
+const FILA_ENCABEZADO = 4;          // dónde están los nombres de columna (rankings)
+const COL_CLAVE = 'C';      // columna del NÚMERO HOMOLOGADO en el archivo de comisiones
 /* Solo las columnas que la app usa: menos de la mitad del archivo */
 const COLS_DETALLE = 'B,C,D,E,G,H,K,L,M,Q,R,T,U,V,Y,AC';
 /* Para totales de equipo alcanza con estas: un tercio del peso */
 const COLS_RESUMEN = 'C,D,G,K,L,Q,R,T,U,V,Y';
 const MINUTOS_SESION = 5;   // se cierra sola tras este tiempo sin movimiento
-const ID_ACCESO  = '1cfOzkjDzA1Z-lG1v8SOfjjivx5ymSJTshRMI5vN6xtQ';  // GOOGLE PLANTILLA ACCESO
-const GID_ACCESO = '0';     // A empleado · B nombre · C distrito · D posición
-                            // E número del líder · F línea de reporte · G número homologado
-/* Registro de accesos (Apps Script). Si vuelves a implementar el script,
-   pega aquí la nueva URL que termina en /exec */
-const URL_ACCESOS = 'https://script.google.com/macros/s/AKfycbzcUGZkdDpGGIK2X8kP5fOlJkYRwGqInv-sxn4wdXAX40JQBVuFwNQNXAyEtkPZkWhsEQ/exec';
+/* Backend único: login por PIN, directorio, relay de comisiones y registro
+   de accesos. Si vuelves a desplegar el Apps Script, pega aquí la URL que
+   termina en /exec */
+const URL_BACKEND = 'https://script.google.com/macros/s/AKfycbzS3CS_JE2GIwfqD_TgPHb6mzJl-9NlMyn-y8k1dkPeq58OS8aSrQDGpDCFu_vkQYFG/exec';
 
 let ULTIMO_DIAG = '';       // se llena solo cuando algo falla
+let TOKEN = '';             // sesión firmada por el backend; solo vive en memoria
 
 /* ==============================================================
    ESTADO DE SESIÓN Y AVISOS
@@ -662,77 +677,36 @@ function semanaDe(d){
 }
 
 /* ==============================================================
-   LECTURA DE LA HOJA
+   BACKEND (Apps Script)
+   Único punto de contacto con las hojas. Nunca se llama a Google
+   directo: el ID real de cada archivo vive solo en el backend.
+   JSONP porque no depende de CORS (funciona igual abriendo el
+   archivo publicado desde cualquier servidor).
    ============================================================== */
-const base = (tq,id,gid,enc) => 'https://docs.google.com/spreadsheets/d/'+id+'/gviz/tq'
-                 + '?gid='+gid+'&headers='+(enc==null?1:enc)+'&tq='+encodeURIComponent(tq);
-
-/* JSONP: no depende de CORS, así que funciona igual abriendo el archivo
-   desde la computadora que publicado en un servidor. */
-function porEtiqueta(tq,id,gid,segundos=25,enc){
+function llamarBackend(params, segundos){
   return new Promise((resolver,rechazar)=>{
+    if(!URL_BACKEND){ rechazar(new Error('sin URL de backend')); return; }
     const fn = 'tp'+Math.random().toString(36).slice(2,9);
     const s = document.createElement('script');
-    const reloj = setTimeout(()=>{limpiar();rechazar(new Error('La hoja no respondió a tiempo'));}, segundos*1000);
+    const reloj = setTimeout(()=>{ limpiar(); rechazar(new Error('El servidor no respondió a tiempo')); }, (segundos||25)*1000);
     function limpiar(){ clearTimeout(reloj); try{delete window[fn]}catch(e){window[fn]=undefined} s.remove(); }
     window[fn] = j => { limpiar(); resolver(j); };
-    s.onerror = () => { limpiar(); rechazar(new Error('No se pudo alcanzar Google Sheets')); };
-    s.src = base(tq,id,gid,enc)+'&tqx='+encodeURIComponent('out:json;responseHandler:'+fn);
+    s.onerror = () => { limpiar(); rechazar(new Error('No se pudo alcanzar el servidor')); };
+    const q = Object.keys(params).map(k=>k+'='+encodeURIComponent(params[k]==null?'':params[k])).join('&');
+    s.src = URL_BACKEND + '?' + q + '&callback=' + fn;
     document.head.appendChild(s);
   });
 }
 
-/* Respaldo por si el navegador bloquea scripts externos */
-async function porDescarga(tq,id,gid,enc){
-  const r = await fetch(base(tq,id,gid,enc)+'&tqx=out:json',{cache:'no-store'});
-  if(!r.ok) throw new Error('El servidor contestó '+r.status);
-  const t = await r.text();
-  const a = t.indexOf('{'), b = t.lastIndexOf('}');
-  if(a<0) throw new Error('Respuesta ilegible de la hoja');
-  return JSON.parse(t.slice(a,b+1));
-}
-
-async function consultar(tq, id, gid, segundos, enc){
-  id = id || ID_HOJA; gid = gid || GID_HOJA;
-  let j;
-  try{ j = await porEtiqueta(tq,id,gid,segundos||25,enc); }
-  catch(e1){
-    /* Si se agotó el tiempo, insistir por otra vía solo alarga la espera */
-    if(/no respondió/.test(e1.message)) throw e1;
-    try{ j = await porDescarga(tq,id,gid,enc); }
-    catch(e2){ throw new Error(e1.message+' / '+e2.message); }
-  }
-  if(j.status==='error'){
-    const d = j.errors && j.errors[0];
-    throw new Error('CONSULTA: '+((d && (d.detailed_message||d.message))||'inválida'));
-  }
-  return j.table;
-}
-
-/* Busca el número en la hoja de acceso. Sin coincidencia no se abre nada. */
-async function buscarEmpleado(clave){
-  const limpia = clave.replace(/['\\]/g,'');
-  const planes = [];
-  if(/^\d+$/.test(limpia)) planes.push('select A,B,C,D,G where A = '+limpia);
-  planes.push("select A,B,C,D,G where A = '"+limpia+"'");
-  planes.push("select A,B,C,D where upper(A) = '"+limpia.toUpperCase()+"'");
-
-  let conecto = false;
-  for(const tq of planes){
-    try{
-      const t = await consultar(tq, ID_ACCESO, GID_ACCESO);
-      conecto = true;
-      const r = (t.rows||[])[0];
-      if(!r) continue;
-      const c = r.c||[];
-      const dato = i => { const x=c[i]; if(!x) return ''; if(x.v!=null) return String(x.v).replace(/\.0+$/,''); return x.f?String(x.f):''; };
-      const nombre = dato(1);
-      if(norm(nombre)==='vacante') continue;
-      return {ok:true, numero:dato(0)||limpia, nombre, distrito:dato(2), posicion:dato(3),
-              homologado: dato(4) || dato(0) || limpia};
-    }catch(e){ if(/CONSULTA/.test(e.message)) conecto = true; }
-  }
-  return conecto ? {ok:false, causa:'noAutorizado'} : {ok:false, causa:'conexion'};
+/* Relay firmado hacia el archivo de comisiones: mismo protocolo GViz de
+   siempre (mismo tq, mismas columnas), solo que ahora corre del lado del
+   backend y exige el token de la sesión. 'hoja' es un código corto
+   ('comisiones' | 'ranking' | 'rankingEnt'), nunca el ID real. */
+async function consultar(tq, hoja, segundos, enc){
+  const r = await llamarBackend({accion:'relay', hoja: hoja||'comisiones', tq,
+                                 headers:(enc==null?1:enc), token:TOKEN}, segundos||25);
+  if(!r || !r.ok) throw new Error('CONSULTA: '+((r&&r.error)||'inválida'));
+  return r.tabla;
 }
 
 /* ==============================================================
@@ -769,9 +743,9 @@ function mesDeEncabezado(txt){
 }
 
 /* Lee la fila de encabezados y ubica las columnas que interesan */
-async function mapaColumnas(gid){
+async function mapaColumnas(hoja){
   const t = await consultar('select * limit 1 offset '+(FILA_ENCABEZADO-1),
-                            ID_HOJA, gid, 30, 0);
+                            hoja, 30, 0);
   const fila = (t.rows||[])[0];
   if(!fila) throw new Error('sin fila de encabezados');
   const celdas = fila.c || [];
@@ -793,11 +767,11 @@ async function mapaColumnas(gid){
   return {colClave, colNombre, meses};
 }
 
-async function leerPestanaRanking(gid){
-  const {colClave, colNombre, meses} = await mapaColumnas(gid);
+async function leerPestanaRanking(hoja){
+  const {colClave, colNombre, meses} = await mapaColumnas(hoja);
   const cols = [colClave].concat(colNombre?[colNombre]:[]).concat(meses.map(m=>m.letra));
   const t = await consultar('select '+cols.join(',')+' offset '+FILA_ENCABEZADO,
-                            ID_HOJA, gid, 40, 0);
+                            hoja, 40, 0);
   const base = colNombre ? 2 : 1;
   const salida = [];
   (t.rows||[]).forEach(r=>{
@@ -837,8 +811,8 @@ async function cargarRankings(){
   /* Las dos pestañas al mismo tiempo. La de entrenamiento se aplica
      primero y RANKING encima, para que el vigente mande. */
   const [ent, gen] = await Promise.all([
-    leerPestanaRanking(GID_RANK_ENT).catch(()=>[]),
-    leerPestanaRanking(GID_RANKING).catch(()=>[])
+    leerPestanaRanking('rankingEnt').catch(()=>[]),
+    leerPestanaRanking('ranking').catch(()=>[])
   ]);
   const lista = ent.concat(gen);
   if(!lista.length){
@@ -903,16 +877,13 @@ async function cargarDirectorio(){
     return DIRECTORIO;
   }
   try{
-    const t = await consultar('select A,B,C,D,E,F,G', ID_ACCESO, GID_ACCESO, 20);
-    const lista = [];
-    (t.rows||[]).forEach(r=>{
-      const c = r.c||[];
-      const dato = i => { const x=c[i]; if(!x) return ''; if(x.v!=null) return limpio(x.v); return x.f?limpio(x.f):''; };
-      const numero = dato(0), nombre = dato(1);
-      if(!numero || norm(nombre)==='vacante') return;
-      lista.push({numero, nombre, distrito:dato(2), posicion:dato(3), lider:dato(4),
-                  lineaNombre:dato(5), homologado: dato(6) || numero});
-    });
+    const r = await llamarBackend({accion:'directorio', token:TOKEN}, 20);
+    if(!r || !r.ok) throw new Error((r&&r.error)||'sin directorio');
+    const lista = (r.datos||[]).map(d=>({
+      numero: limpio(d[0]), nombre: limpio(d[1]), distrito: limpio(d[2]),
+      posicion: limpio(d[3]), lider: limpio(d[4]), lineaNombre: limpio(d[5]),
+      homologado: limpio(d[6]) || limpio(d[0])
+    })).filter(p=>p.numero);
     if(lista.length){
       try{ localStorage.setItem(LLAVE_DIR, JSON.stringify({ts:Date.now(), lista})); }catch(e){}
       armarArbol(lista);
@@ -963,31 +934,6 @@ function directosDe(jefe){
   return delDistrito.length ? delDistrito : salida;
 }
 
-/* Gente a cargo: columna E del directorio = número del líder */
-async function buscarEquipo(numLider){
-  const limpia = String(numLider).replace(/['\\]/g,'');
-  const planes = [];
-  if(/^\d+$/.test(limpia)) planes.push('select A,B,C,D,F where E = '+limpia);
-  planes.push("select A,B,C,D,F where E = '"+limpia+"'");
-  for(const tq of planes){
-    try{
-      const t = await consultar(tq, ID_ACCESO, GID_ACCESO);
-      const filas = t.rows||[];
-      if(!filas.length) continue;
-      const gente = [];
-      filas.forEach(r=>{
-        const c = r.c||[];
-        const dato = i => { const x=c[i]; if(!x) return ''; if(x.v!=null) return String(x.v).replace(/\.0+$/,''); return x.f?String(x.f):''; };
-        const nombre = dato(1);
-        if(norm(nombre)==='vacante' || !dato(0)) return;
-        gente.push({numero:dato(0), nombre, distrito:dato(2), posicion:dato(3), linea:dato(4)});
-      });
-      if(gente.length) return gente;
-    }catch(e){}
-  }
-  return [];
-}
-
 /* Instalaciones de varias personas.
    Un solo viaje cuando la lista cabe en la URL, con filtro opcional de fecha
    para traer primero lo reciente y el historial después. */
@@ -1007,7 +953,7 @@ async function traerDeVarios(claves, {espera=45}={}){
   if(!bloques.length) return [];
   /* Todos los bloques al mismo tiempo: el tiempo total es el del más lento */
   const tandas = await Promise.all(bloques.map(cond =>
-    consultar('select '+COLS_RESUMEN+' where ('+cond+')', null, null, espera)
+    consultar('select '+COLS_RESUMEN+' where ('+cond+')', 'comisiones', espera)
       .then(t=>aFilas(t)).catch(()=>[])
   ));
   const filas = [];
@@ -1040,7 +986,7 @@ async function traerEquipo(claves, distrito){
     ];
     for(const [nombre,cond] of intentos){
       try{
-        const todas = aFilas(await consultar('select '+COLS_RESUMEN+' where '+cond, null, null, 40));
+        const todas = aFilas(await consultar('select '+COLS_RESUMEN+' where '+cond, 'comisiones', 40));
         const mias = todas.filter(f=>suyos.has(claveNum(f.homologado)));
         diag.push(nombre+': '+todas.length+' renglones, '+mias.length+' de tu equipo');
         if(mias.length){ filas = mias; break; }
@@ -1595,7 +1541,6 @@ function pintarBonoMes(grupo){
    PERMISOS  (restaurados)
    ============================================================== */
 const listaTiene = (lista,p) => lista.some(x => norm(x) === norm(p));
-const puedeEntrar    = e => !!e && listaTiene(PUESTOS_ACCESO, e.posicion);
 const puedeVerEquipo = e => !!e && listaTiene(PUESTOS_EQUIPO, e.posicion);
 const claveDatos = e => (e && (e.homologado || e.numero)) || '';
 
@@ -2133,25 +2078,10 @@ function estadoBoton(){
    ============================================================== */
 let ACCESOS = null;          // Map: número -> {ultima, total, primera}
 
-function llamarAccesos(params, segundos){
-  return new Promise((resolver,rechazar)=>{
-    if(!URL_ACCESOS){ rechazar(new Error('sin URL de accesos')); return; }
-    const fn = 'ac'+Math.random().toString(36).slice(2,9);
-    const s = document.createElement('script');
-    const reloj = setTimeout(()=>{ limpiar(); rechazar(new Error('sin respuesta')); }, (segundos||20)*1000);
-    function limpiar(){ clearTimeout(reloj); try{delete window[fn]}catch(e){window[fn]=undefined} s.remove(); }
-    window[fn] = j => { limpiar(); resolver(j); };
-    const q = Object.keys(params).map(k=>k+'='+encodeURIComponent(params[k])).join('&');
-    s.onerror = () => { limpiar(); rechazar(new Error('no se pudo alcanzar el registro')); };
-    s.src = URL_ACCESOS + '?' + q + '&callback=' + fn;
-    document.head.appendChild(s);
-  });
-}
-
 /* Se llama al entrar. Si falla, no pasa nada: el registro es best effort */
 function registrarEntrada(emp){
   if(!emp) return;
-  llamarAccesos({accion:'registrar', num:emp.numero, nombre:emp.nombre||'',
+  llamarBackend({accion:'registrar', num:emp.numero, nombre:emp.nombre||'',
                  puesto:emp.posicion||'', distrito:emp.distrito||''}, 15)
     .then(()=>{ ACCESOS = null; })      // se vuelve a consultar la próxima vez
     .catch(()=>{});
@@ -2159,7 +2089,7 @@ function registrarEntrada(emp){
 
 async function cargarAccesos(){
   if(ACCESOS) return ACCESOS;
-  const r = await llamarAccesos({accion:'consultar'}, 25);
+  const r = await llamarBackend({accion:'consultar', token:TOKEN}, 25);
   if(!r || !r.ok) throw new Error((r && r.error) || 'respuesta inesperada');
   const m = new Map();
   (r.datos||[]).forEach(d=>{
@@ -2494,63 +2424,123 @@ async function verA(emp,{silencioso=false}={}){
 }
 
 /* ==============================================================
-   ENTRADA
+   ENTRADA — número de empleado, luego PIN, y PIN nuevo si aplica
    ============================================================== */
-async function entrar(clave,{silencioso=false}={}){
+let NUMERO_TEMP = '';
+
+function mostrarPasoNumero(){
+  $('pasoPin').classList.add('oculto');
+  $('pasoNuevoPin').classList.add('oculto');
+  $('pasoNumero').classList.remove('oculto');
+  NUMERO_TEMP=''; TOKEN=''; $('numEmpleado').value='';
+}
+function mostrarPasoPin(){
+  $('pasoNumero').classList.add('oculto');
+  $('pasoNuevoPin').classList.add('oculto');
+  $('pasoPin').classList.remove('oculto');
+  $('pinActual').value=''; $('pinActual').focus();
+}
+function mostrarPasoNuevoPin(){
+  $('pasoNumero').classList.add('oculto');
+  $('pasoPin').classList.add('oculto');
+  $('pasoNuevoPin').classList.remove('oculto');
+  $('pinNuevo1').value=''; $('pinNuevo2').value=''; $('pinNuevo1').focus();
+}
+
+/* Mismas reglas que valida el backend, para avisar antes de mandar la
+   consulta. El backend las vuelve a checar: esto es solo para no hacer
+   esperar al usuario un viaje de red por un PIN obviamente inválido. */
+function pinInvalido(pin, numero){
+  if(!/^\d{4}$/.test(pin)) return 'El PIN debe ser de 4 dígitos.';
+  if(/^(\d)\1{3}$/.test(pin)) return 'El PIN no puede ser el mismo dígito repetido.';
+  const d = pin.split('').map(Number);
+  let asc=true, desc=true;
+  for(let i=1;i<d.length;i++){ if(d[i]!==d[i-1]+1) asc=false; if(d[i]!==d[i-1]-1) desc=false; }
+  if(asc||desc) return 'El PIN no puede ser una secuencia consecutiva (ej. 1234).';
+  const emp = String(numero||'').replace(/\D/g,'');
+  if(pin===String(numero||'') || (emp && pin===emp.slice(-4))) return 'El PIN no puede ser igual a tu número de empleado.';
+  if(pin==='8888') return 'Elige un PIN distinto al precargado.';
+  return '';
+}
+
+async function pedirPin(){
   limpiarAviso();
-  const btn = $('btnEntrar');
-  if(!silencioso){ btn.disabled=true; btn.textContent='Validando tu acceso…'; }
+  const v = $('numEmpleado').value.replace(/\s+/g,'');
+  if(!v){ mostrarAviso('Escribe tu número de empleado para continuar.'); return; }
+  NUMERO_TEMP = v;
+  mostrarPasoPin();
+}
 
-  let emp = leerJSON('tp_emp_'+clave);
-  if(!emp){
-    const r = await buscarEmpleado(clave);
+async function intentarEntrar(){
+  limpiarAviso();
+  const pin = $('pinActual').value.trim();
+  if(!/^\d{4}$/.test(pin)){ mostrarAviso('Escribe tu PIN de 4 dígitos.'); return; }
+  const btn = $('btnEntrarPin');
+  btn.disabled=true; btn.textContent='Validando…';
+  let r;
+  try{ r = await llamarBackend({accion:'login', numero:NUMERO_TEMP, pin}, 20); }
+  catch(e){
     btn.disabled=false; btn.textContent='Ver mi avance';
-    if(!r.ok){
-      if(r.causa==='conexion')
-        mostrarAviso('No se pudo verificar tu acceso. Revisa tu señal y vuelve a intentar.', true);
-      else
-        mostrarAviso('El número '+clave+' no está en la lista de acceso. Verifícalo con tu líder.');
-      return;
-    }
-    emp = r;
-  }else{
-    btn.disabled=false; btn.textContent='Ver mi avance';
-    buscarEmpleado(clave).then(r=>{                       // revalida en segundo plano
-      if(r.ok && puedeEntrar(r)){ try{ localStorage.setItem('tp_emp_'+clave, JSON.stringify(r)); }catch(e){} }
-      else if(r.causa==='noAutorizado' || (r.ok && !puedeEntrar(r))){
-        localStorage.removeItem('tp_emp_'+clave);
-        if(USUARIO && USUARIO.numero===clave) salir();
-      }
-    }).catch(()=>{});
-  }
-
-  if(!puedeEntrar(emp)){
-    localStorage.removeItem('tp_emp_'+clave);
-    mostrarAviso('El puesto '+(emp.posicion||'registrado')+' no tiene acceso a esta herramienta.');
+    mostrarAviso('No se pudo verificar tu acceso. Revisa tu señal y vuelve a intentar.', true);
     return;
   }
-  try{ localStorage.setItem('tp_emp_'+clave, JSON.stringify(emp)); }catch(e){}
+  btn.disabled=false; btn.textContent='Ver mi avance';
+  if(!r || !r.ok){
+    const msg = {
+      noAutorizado: 'El número '+NUMERO_TEMP+' no está en la lista de acceso. Verifícalo con tu líder.',
+      sinPuesto: 'Tu puesto no tiene acceso a esta herramienta.',
+      pinIncorrecto: 'PIN incorrecto. Verifícalo con tu líder si no lo recuerdas.'
+    }[r&&r.error] || ((r&&r.error)||'No se pudo verificar tu acceso.');
+    mostrarAviso(msg);
+    return;
+  }
+  TOKEN = r.token;
+  USUARIO = {numero:r.numero, nombre:r.nombre, distrito:r.distrito, posicion:r.posicion, homologado:r.homologado};
+  EMPLEADO = USUARIO; CLAVE = USUARIO.numero;
+  if(r.debeCambiarPin){ mostrarPasoNuevoPin(); return; }
+  continuarDespuesDeEntrar();
+}
 
-  USUARIO = emp;
+async function guardarPinNuevo(){
+  limpiarAviso();
+  const p1 = $('pinNuevo1').value.trim(), p2 = $('pinNuevo2').value.trim();
+  const err = pinInvalido(p1, CLAVE);
+  if(err){ mostrarAviso(err); return; }
+  if(p1!==p2){ mostrarAviso('Los dos PIN no coinciden.'); return; }
+  const btn = $('btnGuardarPin');
+  btn.disabled=true; btn.textContent='Guardando…';
+  let r;
+  try{ r = await llamarBackend({accion:'cambiarPin', token:TOKEN, pinNuevo:p1}, 20); }
+  catch(e){
+    btn.disabled=false; btn.textContent='Guardar mi PIN';
+    mostrarAviso('No se pudo guardar tu PIN. Revisa tu señal y vuelve a intentar.', true);
+    return;
+  }
+  btn.disabled=false; btn.textContent='Guardar mi PIN';
+  if(!r || !r.ok){ mostrarAviso((r&&r.error)||'No se pudo guardar tu PIN.'); return; }
+  TOKEN = r.token;
+  continuarDespuesDeEntrar();
+}
+
+function continuarDespuesDeEntrar(){
+  const emp = USUARIO;
   cargarRankings().catch(()=>{});      // ranking vigente y metas del bono
   registrarEntrada(emp);              // queda el rastro de quién entró y cuándo
-  localStorage.setItem('tp_ultimo', clave);
   abrirTablero();
   marcarActividad();
   if(puedeVerEquipo(emp)){                 // jefe: inicio ligero y cálculo en 2º plano
-    EMPLEADO = emp; CLAVE = emp.numero;
     FOCO = emp; RUTA = [];
     mostrarInicioJefe(emp, false);
     avisar('');
     armarGrupos().then(()=>{ pintarListaGente(); cargarEquipo(); });
     return;
   }
-
-  const r = await verA(emp,{silencioso});
-  if(r==='conexion' && !leerJSON(CACHE(claveDatos(emp)))){
-    salir();
-    mostrarAviso('No se pudo conectar con el archivo de comisiones. Revisa tu señal y vuelve a intentar.', true);
-  }
+  verA(emp,{silencioso:false}).then(r=>{
+    if(r==='conexion'){
+      salir();
+      mostrarAviso('No se pudo conectar con el archivo de comisiones. Revisa tu señal y vuelve a intentar.', true);
+    }
+  });
 }
 
 /* Consulta de otro empleado, solo para los puestos autorizados */
@@ -2561,14 +2551,13 @@ function abrirTablero(){
 
 function salir(porTiempo){
   clearTimeout(RELOJ);
-  localStorage.removeItem('tp_ultimo');
   localStorage.removeItem('tp_act');
   FILAS=[]; MIS_FILAS=[]; EQ_FILAS=[]; EQUIPO=null; GRUPOS=null; ALCANCE='mi';
   FOCO=null; RUTA=[];
   PERIODO=null; CLAVE=''; EMPLEADO=null; USUARIO=null;
   $('tablero').classList.add('oculto');
   $('acceso').classList.remove('oculto');
-  $('homologado').value='';
+  mostrarPasoNumero();
   $('viendo').classList.add('oculto');
   $('avisoCarga').classList.add('oculto');
   ['btnCalcEquipo','btnAccesos','btnAtras','rotuloGente','listaGente'].forEach(i=>$(i).classList.add('oculto'));
@@ -2626,12 +2615,13 @@ function descargarCSV(){
 /* ==============================================================
    ENLACES
    ============================================================== */
-$('btnEntrar').onclick = ()=>{
-  const v = $('homologado').value.replace(/\s+/g,'').toUpperCase();
-  if(!v){ mostrarAviso('Escribe tu número homologado para continuar.'); return; }
-  entrar(v);
-};
-$('homologado').addEventListener('keydown',e=>{ if(e.key==='Enter') $('btnEntrar').click(); });
+$('btnSiguienteNumero').onclick = pedirPin;
+$('numEmpleado').addEventListener('keydown',e=>{ if(e.key==='Enter') $('btnSiguienteNumero').click(); });
+$('btnEntrarPin').onclick = intentarEntrar;
+$('pinActual').addEventListener('keydown',e=>{ if(e.key==='Enter') $('btnEntrarPin').click(); });
+$('btnCambiarNumero').onclick = mostrarPasoNumero;
+$('btnGuardarPin').onclick = guardarPinNuevo;
+$('pinNuevo2').addEventListener('keydown',e=>{ if(e.key==='Enter') $('btnGuardarPin').click(); });
 $('btnSalir').onclick = salir;
 $('btnCSV').onclick = descargarCSV;
 $('btnRefrescar').onclick = ()=>{ if(ALCANCE==='equipo' || ALCANCE==='lista'){ EQ_FILAS=[]; GRUPOS=null; DIRECTORIO=null; CARGA_EQ='no';
@@ -2651,9 +2641,10 @@ $('subPago').onclick = ()=>{ SUBVISTA='pago'; PERIODO=null;
   $('subPago').setAttribute('aria-pressed','true'); $('subInst').setAttribute('aria-pressed','false'); pintar(); };
 
 /* Reanuda solo si la sesión sigue viva */
-const ultimo = localStorage.getItem('tp_ultimo');
-if(ultimo && !vencida()) entrar(ultimo,{silencioso:true});
-else if(ultimo){ localStorage.removeItem('tp_ultimo'); localStorage.removeItem('tp_act'); }
+/* Por seguridad no se reanuda sesión al reabrir la app: siempre se pide
+   número + PIN de nuevo. */
+localStorage.removeItem('tp_act');
+$('numEmpleado').focus();
 
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
