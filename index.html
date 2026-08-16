@@ -2625,7 +2625,7 @@ $('pinNuevo2').addEventListener('keydown',e=>{ if(e.key==='Enter') $('btnGuardar
 $('btnSalir').onclick = salir;
 $('btnCSV').onclick = descargarCSV;
 $('btnRefrescar').onclick = ()=>{ if(ALCANCE==='equipo' || ALCANCE==='lista'){ EQ_FILAS=[]; GRUPOS=null; DIRECTORIO=null; CARGA_EQ='no';
-    localStorage.removeItem('tp_dir_todo');
+    localStorage.removeItem(LLAVE_DIR);
     if(USUARIO) localStorage.removeItem('tp_eq_'+USUARIO.numero);
     if(ALCANCE==='lista'){ armarGrupos().then(()=>{ pintarListaGente(); cargarEquipo(); }); } else cargarEquipo(); } else if(EMPLEADO) verA(EMPLEADO,{silencioso:true}); };
 $('btnCalcEquipo').onclick = ()=>{ marcarActividad(); mostrarEquipo(); };
