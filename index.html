@@ -738,13 +738,20 @@ function mesDeEncabezado(txt){
   if(!/^ranking\b/.test(t)) return null;
   const mi = MESES_LARGO.findIndex(m=>t.indexOf(m) > -1);
   if(mi < 0) return null;
-  const a = t.match(/(20\d\d)/);
-  return {mes:mi, anio: a ? +a[1] : 0};
+  let a = t.match(/(20\d\d)/);
+  let anio = a ? +a[1] : 0;
+  if(!anio){ a = t.match(/\b(\d{2})\b/); if(a) anio = 2000 + +a[1]; }   // "RANKING AGOSTO 26" (año a 2 dígitos)
+  return {mes:mi, anio};
 }
+
+/* RANKING tiene un título arriba (encabezados en la fila 4); RANKING
+   ENTRENAMIENTO no, sus encabezados están en la fila 1. */
+const FILA_ENCABEZADO_POR_HOJA = {ranking: FILA_ENCABEZADO, rankingEnt: 1};
 
 /* Lee la fila de encabezados y ubica las columnas que interesan */
 async function mapaColumnas(hoja){
-  const t = await consultar('select * limit 1 offset '+(FILA_ENCABEZADO-1),
+  const filaEnc = FILA_ENCABEZADO_POR_HOJA[hoja] || FILA_ENCABEZADO;
+  const t = await consultar('select * limit 1 offset '+(filaEnc-1),
                             hoja, 30, 0);
   const fila = (t.rows||[])[0];
   if(!fila) throw new Error('sin fila de encabezados');
@@ -761,7 +768,8 @@ async function mapaColumnas(hoja){
     const m = mesDeEncabezado(txt);
     if(m) meses.push({letra:letra(i), mes:m.mes, anio:m.anio, orden:m.anio*100+m.mes});
   });
-  if(!colClave) throw new Error('no se encontró la columna HOMOLOGADO');
+  /* RANKING ENTRENAMIENTO no rotula la columna del número (siempre es A) */
+  if(!colClave) colClave = 'A';
   if(!meses.length) throw new Error('no se encontraron columnas de RANKING por mes');
   meses.sort((a,b)=>a.orden-b.orden);
   return {colClave, colNombre, meses};
@@ -769,8 +777,9 @@ async function mapaColumnas(hoja){
 
 async function leerPestanaRanking(hoja){
   const {colClave, colNombre, meses} = await mapaColumnas(hoja);
+  const filaEnc = FILA_ENCABEZADO_POR_HOJA[hoja] || FILA_ENCABEZADO;
   const cols = [colClave].concat(colNombre?[colNombre]:[]).concat(meses.map(m=>m.letra));
-  const t = await consultar('select '+cols.join(',')+' offset '+FILA_ENCABEZADO,
+  const t = await consultar('select '+cols.join(',')+' offset '+filaEnc,
                             hoja, 40, 0);
   const base = colNombre ? 2 : 1;
   const salida = [];
