@@ -93,9 +93,11 @@ function verificarToken(token){
 }
 
 /* ---------------- directorio (hoja PLANTILLA) ---------------- */
-let _plantillaCache = null;
+/* Sin caché: cada función solo la llama una vez por petición, así que
+   cachear no ahorra nada — y Apps Script a veces reutiliza la misma
+   instancia "tibia" entre peticiones distintas, lo que puede devolver
+   una copia vieja de la hoja si alguien la editó mientras tanto. */
 function leerPlantilla(){
-  if(_plantillaCache) return _plantillaCache;
   const hoja = SpreadsheetApp.openById(ID_BASE).getSheetByName('PLANTILLA');
   const valores = hoja.getDataRange().getValues();
   const filas = [];
@@ -123,7 +125,6 @@ function leerPlantilla(){
   filas.forEach(f => { if(f.nombre) porNombre.set(norm(f.nombre), idDe(f)); });
   filas.forEach(f => { f.lider = f.liderNombre ? (porNombre.get(norm(f.liderNombre)) || '') : ''; });
 
-  _plantillaCache = filas;
   return filas;
 }
 
@@ -187,7 +188,6 @@ function accCambiarPin(p){
 
   const hoja = SpreadsheetApp.openById(ID_BASE).getSheetByName('PLANTILLA');
   hoja.getRange(fila._fila, 28).setValue(nuevo);   // columna AB
-  _plantillaCache = null;
 
   const fresco = Object.assign({}, payload, {exp: Date.now() + VIGENCIA_TOKEN_MS});
   return {ok:true, token: firmar(fresco)};
@@ -325,14 +325,10 @@ function formatearValor(v){
   return (v === '' ? null : v);
 }
 
-let _hojaCache = {};
 function leerHoja(nombre){
-  if(_hojaCache[nombre]) return _hojaCache[nombre];
   const hoja = SpreadsheetApp.openById(ID_BASE).getSheetByName(nombre);
   if(!hoja) throw new Error('no existe la pestaña "'+nombre+'"');
-  const valores = hoja.getDataRange().getValues();
-  _hojaCache[nombre] = valores;
-  return valores;
+  return hoja.getDataRange().getValues();
 }
 
 function ejecutarConsulta(tq, nombreHoja, headers){
