@@ -102,18 +102,27 @@ function leerPlantilla(){
   for(let i = 1; i < valores.length; i++){        // fila 1 = encabezados
     const r = valores[i];
     filas.push({
-      empSF:      limpio(r[1]),   // B — NUMERO EMPLEADO SF
-      idPos:      limpio(r[2]),   // C — ID POSICIONES
-      empTGS:     limpio(r[3]),   // D — NUMERO EMPLEADO TGS
-      nombre:     limpio(r[4]),   // E — NOMBRE DEL EMPLEADO
-      puesto:     limpio(r[5]),   // F — POSICIÓN
-      distrito:   limpio(r[7]),   // H — DISTRITO
-      lider:      limpio(r[8]),   // I — NUMERO LR
-      pin:        limpio(r[27]),  // AB — PIN
-      homologado: limpio(r[30]),  // AE — HOMOLOGAD
+      empSF:       limpio(r[1]),   // B — NUMERO EMPLEADO SF
+      idPos:       limpio(r[2]),   // C — ID POSICIONES
+      empTGS:      limpio(r[3]),   // D — NUMERO EMPLEADO TGS
+      nombre:      limpio(r[4]),   // E — NOMBRE DEL EMPLEADO
+      puesto:      limpio(r[5]),   // F — POSICIÓN
+      distrito:    limpio(r[7]),   // H — DISTRITO
+      liderNombre: limpio(r[10]),  // K — NOMBRE LINEA DE REPORTE (coach/jefe directo, por NOMBRE)
+      pin:         limpio(r[27]),  // AB — PIN
+      homologado:  limpio(r[30]),  // AE — HOMOLOGAD
       _fila: i + 1
     });
   }
+  /* La columna K trae el NOMBRE del jefe directo, no su número — hay que
+     resolverlo contra el nombre (columna E) de otra fila para tener la
+     misma llave numérica que usa el resto del árbol de mando. (Columna Z,
+     "segunda LR", no hace falta: siempre es el resultado de caminar K dos
+     veces hacia arriba, así que el árbol ya llega ahí solo subiendo niveles.) */
+  const porNombre = new Map();
+  filas.forEach(f => { if(f.nombre) porNombre.set(norm(f.nombre), idDe(f)); });
+  filas.forEach(f => { f.lider = f.liderNombre ? (porNombre.get(norm(f.liderNombre)) || '') : ''; });
+
   _plantillaCache = filas;
   return filas;
 }
