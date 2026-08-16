@@ -1,7 +1,7 @@
 /* Mi Avance de Instalaciones — service worker
    Sube el número de versión cada vez que cambies index.html,
    así los teléfonos que ya la tienen instalada reciben la actualización. */
-const CACHE = 'tp-avance-v30';
+const CACHE = 'tp-avance-v32';
 const ARCHIVOS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-mask.png'];
 
 /* Se guarda uno por uno: si falta un archivo, no se cae toda la instalación */
