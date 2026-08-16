@@ -534,7 +534,6 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--linea);font-s
 /* La app ya no conoce los IDs de las hojas: todo pasa por el backend de
    Apps Script (apps-script/Codigo.gs), que es el único lugar donde viven.
    Aquí solo quedan los nombres cortos de pestaña y las columnas a pedir. */
-const FILA_ENCABEZADO = 4;          // dónde están los nombres de columna (rankings)
 const COL_CLAVE = 'C';      // columna del NÚMERO HOMOLOGADO en el archivo de comisiones
 /* Solo las columnas que la app usa: menos de la mitad del archivo */
 const COLS_DETALLE = 'B,C,D,E,G,H,K,L,M,Q,R,T,U,V,Y,AC';
@@ -744,40 +743,38 @@ function mesDeEncabezado(txt){
   return {mes:mi, anio};
 }
 
-/* RANKING tiene un título arriba (encabezados en la fila 4); RANKING
-   ENTRENAMIENTO no, sus encabezados están en la fila 1. */
-const FILA_ENCABEZADO_POR_HOJA = {ranking: FILA_ENCABEZADO, rankingEnt: 1};
-
-/* Lee la fila de encabezados y ubica las columnas que interesan */
+/* No se fija un número de fila de encabezados: esta hoja se reordena
+   seguido (RANKING ha tenido el encabezado en la fila 2 y en la 4 en
+   distintos momentos; RANKING ENTRENAMIENTO en la 1). Se revisan las
+   primeras filas y se usa la primera que sí tenga columnas de RANKING
+   por mes — así no importa si se vuelve a mover. */
 async function mapaColumnas(hoja){
-  const filaEnc = FILA_ENCABEZADO_POR_HOJA[hoja] || FILA_ENCABEZADO;
-  const t = await consultar('select * limit 1 offset '+(filaEnc-1),
-                            hoja, 30, 0);
-  const fila = (t.rows||[])[0];
-  if(!fila) throw new Error('sin fila de encabezados');
-  const celdas = fila.c || [];
+  const t = await consultar('select * limit 8', hoja, 30, 0);
+  const filas = t.rows || [];
   const letra = i => (t.cols[i] && t.cols[i].id) || '';
-  let colClave = '', colNombre = '';
-  const meses = [];
-  celdas.forEach((c,i)=>{
-    const txt = c && (c.v!=null ? String(c.v) : (c.f||''));
-    if(!txt) return;
-    const n = norm(txt);
-    if(!colClave && n === 'homologado') colClave = letra(i);
-    if(!colNombre && n === 'empleado') colNombre = letra(i);
-    const m = mesDeEncabezado(txt);
-    if(m) meses.push({letra:letra(i), mes:m.mes, anio:m.anio, orden:m.anio*100+m.mes});
-  });
-  /* RANKING ENTRENAMIENTO no rotula la columna del número (siempre es A) */
-  if(!colClave) colClave = 'A';
-  if(!meses.length) throw new Error('no se encontraron columnas de RANKING por mes');
-  meses.sort((a,b)=>a.orden-b.orden);
-  return {colClave, colNombre, meses};
+  for(let f = 0; f < filas.length; f++){
+    const celdas = (filas[f] && filas[f].c) || [];
+    let colClave = '', colNombre = '';
+    const meses = [];
+    celdas.forEach((c,i)=>{
+      const txt = c && (c.v!=null ? String(c.v) : (c.f||''));
+      if(!txt) return;
+      const n = norm(txt);
+      if(!colClave && n === 'homologado') colClave = letra(i);
+      if(!colNombre && n === 'empleado') colNombre = letra(i);
+      const m = mesDeEncabezado(txt);
+      if(m) meses.push({letra:letra(i), mes:m.mes, anio:m.anio, orden:m.anio*100+m.mes});
+    });
+    if(!meses.length) continue;      // esta fila no es la de encabezados, seguir buscando
+    if(!colClave) colClave = 'A';    // RANKING ENTRENAMIENTO no rotula la columna del número
+    meses.sort((a,b)=>a.orden-b.orden);
+    return {colClave, colNombre, meses, filaEnc: f+1};
+  }
+  throw new Error('no se encontraron columnas de RANKING por mes');
 }
 
 async function leerPestanaRanking(hoja){
-  const {colClave, colNombre, meses} = await mapaColumnas(hoja);
-  const filaEnc = FILA_ENCABEZADO_POR_HOJA[hoja] || FILA_ENCABEZADO;
+  const {colClave, colNombre, meses, filaEnc} = await mapaColumnas(hoja);
   const cols = [colClave].concat(colNombre?[colNombre]:[]).concat(meses.map(m=>m.letra));
   const t = await consultar('select '+cols.join(',')+' offset '+filaEnc,
                             hoja, 40, 0);
