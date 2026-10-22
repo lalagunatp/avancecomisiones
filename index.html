@@ -871,20 +871,31 @@ function rankingBaseDeMes(persona, fecha){
    promedio) es Platino ese mes. */
 const PLATINO = {base:'oro', meses:3, inst:60};
 
-/* Cuentas instaladas por persona y por mes, con todo lo descargado
-   (lo propio y lo del equipo), sin contar dos veces la misma cuenta */
+/* Instalaciones por persona y por mes, con todo lo descargado (lo propio y
+   lo del equipo). Cada lista se cuenta por separado y se queda el mayor:
+   son la misma información, sumarlas contaría doble. Los datos de equipo
+   llegan sin número de cuenta (columnas de resumen), así que solo se
+   descartan repetidas cuando la cuenta viene. */
 let _ipmIx = null, _ipmA = null, _ipmB = null;
 function instPorMes(){
   if(_ipmIx && _ipmA === FILAS && _ipmB === EQ_FILAS) return _ipmIx;
   const ix = new Map();
-  [EQ_FILAS, FILAS].forEach(lista=>(lista||[]).forEach(f=>{
-    if(!fechaReal(f.instalacion)) return;
-    const k = claveNum(f.homologado), mes = claveMes(f.instalacion);
-    if(!ix.has(k)) ix.set(k, new Map());
-    const m = ix.get(k);
-    if(!m.has(mes)) m.set(mes, new Set());
-    m.get(mes).add(String(f.cuenta));
-  }));
+  [EQ_FILAS, FILAS].forEach(lista=>{
+    const propio = new Map();      // persona -> mes -> Set de cuentas / renglones
+    (lista||[]).forEach((f,i)=>{
+      if(!fechaReal(f.instalacion)) return;
+      const k = claveNum(f.homologado), mes = claveMes(f.instalacion);
+      if(!propio.has(k)) propio.set(k, new Map());
+      const m = propio.get(k);
+      if(!m.has(mes)) m.set(mes, new Set());
+      m.get(mes).add(f.cuenta ? 'c'+f.cuenta : 'r'+i);
+    });
+    propio.forEach((meses,k)=>{
+      if(!ix.has(k)) ix.set(k, new Map());
+      const m = ix.get(k);
+      meses.forEach((s,mes)=>m.set(mes, Math.max(m.get(mes)||0, s.size)));
+    });
+  });
   _ipmIx = ix; _ipmA = FILAS; _ipmB = EQ_FILAS;
   return ix;
 }
@@ -894,7 +905,7 @@ function evaluarPlatino(persona, fecha){
   const meses = [];
   for(let i = PLATINO.meses; i >= 1; i--){
     const d = new Date(fecha.getFullYear(), fecha.getMonth()-i, 1);
-    meses.push({d, n:(m.get(claveMes(d))||new Set()).size});
+    meses.push({d, n:m.get(claveMes(d))||0});
   }
   const total = meses.reduce((s,x)=>s+x.n, 0);
   return {meses, total, logra: total >= PLATINO.inst};
