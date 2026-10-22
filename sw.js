@@ -1,14 +1,16 @@
 /* Mi Avance de Instalaciones — service worker
    Sube el número de versión cada vez que cambies index.html,
    así los teléfonos que ya la tienen instalada reciben la actualización. */
-const CACHE = 'tp-avance-v37';
+const CACHE = 'tp-avance-v38';
 const ARCHIVOS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-mask.png'];
 
 /* Se guarda uno por uno: si falta un archivo, no se cae toda la instalación */
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
     const c = await caches.open(CACHE);
-    for (const a of ARCHIVOS) { try { await c.add(a); } catch (err) {} }
+    /* cache:'reload' salta el caché del navegador: sin esto la versión nueva
+       podía guardar el index.html anterior (el servidor permite 10 min) */
+    for (const a of ARCHIVOS) { try { await c.add(new Request(a, {cache:'reload'})); } catch (err) {} }
     self.skipWaiting();
   })());
 });
@@ -37,7 +39,7 @@ self.addEventListener('fetch', e => {
       const c = await caches.open(CACHE);
       const guardado = await c.match('./index.html');
       if (guardado) {
-        fetch(req).then(r => { if (r && r.ok) c.put('./index.html', r.clone()); }).catch(() => {});
+        fetch(req, {cache:'no-cache'}).then(r => { if (r && r.ok) c.put('./index.html', r.clone()); }).catch(() => {});
         return guardado;
       }
       try {

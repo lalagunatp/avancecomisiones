@@ -870,6 +870,9 @@ function rankingBaseDeMes(persona, fecha){
    3 meses completos anteriores hizo 60 instalaciones o más (20 por mes en
    promedio) es Platino ese mes. */
 const PLATINO = {base:'oro', meses:3, inst:60};
+/* Llave de persona para el conteo: el homologado puede llegar con formato
+   de miles ("123,456") según la hoja; se deja solo el número */
+const llavePersona = v => claveNum(v).replace(/[,\s]/g,'');
 
 /* Instalaciones por persona y por mes, con todo lo descargado (lo propio y
    lo del equipo). Cada lista se cuenta por separado y se queda el mayor:
@@ -884,7 +887,7 @@ function instPorMes(){
     const propio = new Map();      // persona -> mes -> Set de cuentas / renglones
     (lista||[]).forEach((f,i)=>{
       if(!fechaReal(f.instalacion)) return;
-      const k = claveNum(f.homologado), mes = claveMes(f.instalacion);
+      const k = llavePersona(f.homologado), mes = claveMes(f.instalacion);
       if(!propio.has(k)) propio.set(k, new Map());
       const m = propio.get(k);
       if(!m.has(mes)) m.set(mes, new Set());
@@ -901,7 +904,7 @@ function instPorMes(){
 }
 
 function evaluarPlatino(persona, fecha){
-  const m = instPorMes().get(claveNum((persona && (persona.homologado||persona.numero))||'')) || new Map();
+  const m = instPorMes().get(llavePersona((persona && (persona.homologado||persona.numero))||'')) || new Map();
   const meses = [];
   for(let i = PLATINO.meses; i >= 1; i--){
     const d = new Date(fecha.getFullYear(), fecha.getMonth()-i, 1);
@@ -1644,6 +1647,7 @@ function pintarBonoMes(grupo){
   const clavesDelMes = new Set(grupo.filas.map(f=>sem(f).clave));
   const semanas = [...clavesDelMes].map(k=>ix.get(k)).filter(Boolean).sort((a,b)=>a.orden-b.orden);
   if(!semanas.length){ caja.classList.add('oculto'); return; }
+  const fi = grupo.filas[0].instalacion, inicioMes = new Date(fi.getFullYear(), fi.getMonth(), 1);
 
   let ganadas=0, minimos=0, total=0, participantes=0;
   const fichas = semanas.map(s=>{
@@ -1667,7 +1671,8 @@ function pintarBonoMes(grupo){
     + (participantes<semanas.length
         ? '<div class="cuando">Las semanas sin meta corresponden a ranking Condicionado o Entrenamiento, que no participan en el bono.</div>'
         : '')
-    + '<div class="cuando">El bono de cada semana se paga el jueves de la semana siguiente.</div>';
+    + '<div class="cuando">El bono de cada semana se paga el jueves de la semana siguiente.</div>'
+    + notaPlatino(grupo.filas[0], inicioMes, rankingDeMes(grupo.filas[0], inicioMes));
   caja.classList.remove('oculto');
 }
 
@@ -2302,8 +2307,11 @@ function ultimoRanking(persona){
   /* La base histórica manda: es el ranking vigente, no el de la venta */
   const oficial = rkDe(persona);
   if(oficial && oficial.ultimo){
-    const [a, m] = oficial.mesUltimo.split('-');
-    return rankingDeMes(persona, new Date(+a, +m-1, 1));   // ya trae la subida a Platino
+    /* Se evalúa en el mes en curso (o el último con dato, si la hoja aún no
+       trae el de este mes). Ya incluye la subida a Platino. */
+    const hoy = new Date(), [a, m] = String(oficial.mesUltimo||'').split('-');
+    const ult = new Date(+a, +m-1, 1);
+    return rankingDeMes(persona, (+a > 2000 && ult < hoy) ? ult : hoy);
   }
   if(_rkDe !== EQ_FILAS){
     _rkCache = new Map(); _rkDe = EQ_FILAS;
