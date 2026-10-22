@@ -28,6 +28,7 @@
   --magenta:#FF2E7E;
   --ambar:#FFB020;
   --menta:#25D07D;
+  --cielo:#4DC4FF;
   --radio:14px;
   --num:ui-monospace,"SF Mono","Roboto Mono","DejaVu Sans Mono",monospace;
 }
@@ -131,6 +132,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--ambar);outline-
 /* ---------- Distribución de ranking del equipo ---------- */
 .rankBarra{display:flex;height:10px;border-radius:99px;overflow:hidden;background:var(--linea);margin-top:2px}
 .rankBarra span{display:block;transition:width .25s}
+.rankBarra .b-platino{background:#9FE8E0}
 .rankBarra .b-oro{background:#FFB020}
 .rankBarra .b-plata{background:#CFD6E6}
 .rankBarra .b-bronce{background:#C4763C}
@@ -186,6 +188,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--ambar);outline-
 
 /* ---------- Insignias de ranking ---------- */
 .rank{display:inline-block;padding:3px 9px;border-radius:99px;font-size:.7rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
+.rank.platino{background:#9FE8E0;color:#0E3B38}
 .rank.oro{background:#FFB020;color:#3A2400}
 .rank.plata{background:#CFD6E6;color:#232B3D}
 .rank.bronce{background:#C4763C;color:#2A1508}
@@ -224,6 +227,22 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--ambar);outline-
 .fichas{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
 .ficha{border:1px solid var(--linea);border-radius:99px;padding:6px 11px;font-size:.76rem;font-weight:700;color:var(--tenue);white-space:nowrap}
 .ficha.si{border-color:var(--menta);color:var(--menta)}
+/* Bono mínimo (Oro/Platino con 4): celeste, distinto del completo (menta) y del pendiente (ámbar) */
+.bono.minimo{border-color:var(--cielo);background:linear-gradient(180deg,rgba(77,196,255,.10),transparent 70%),var(--panel)}
+.bono.minimo .monto,.bono.minimo .rot{color:var(--cielo)}
+.bono.minimo .medida span{background:var(--cielo)}
+.bono .medida{position:relative}
+.bono .medida .marcaMin{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--fondo)}
+.escalones{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+.escalon{border:1px dashed var(--linea);border-radius:99px;padding:5px 11px;font-size:.74rem;font-weight:700;color:var(--tenue);white-space:nowrap}
+.escalon b{font-family:var(--num);color:var(--texto)}
+.escalon em{font-style:normal;opacity:.85}
+.escalon.min.si{border:1px solid var(--cielo);color:var(--cielo);background:rgba(77,196,255,.10)}
+.escalon.comp.si{border:1px solid var(--menta);color:var(--menta);background:rgba(37,208,125,.10)}
+.escalon.si b{color:inherit}
+.ficha.min{border-color:var(--cielo);color:var(--cielo)}
+.txtMin{color:var(--cielo);font-weight:700}
+.txtPlat{color:#9FE8E0;font-weight:800}
 .ficha b{font-family:var(--num)}
 
 /* ---------- Gráfica de barras ---------- */
@@ -834,15 +853,58 @@ const rkDe = p => RANKINGS && RANKINGS.get(claveNum((p && (p.homologado||p.numer
 /* Sirve tanto para una persona del directorio como para una fila del acumulado:
    ambas traen homologado */
 
-/* Ranking del mes al que pertenece una fecha; si no hay dato de ese mes,
-   se toma el más reciente anterior a ella. */
-function rankingDeMes(persona, fecha){
+const claveMes = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+
+/* Ranking del mes al que pertenece una fecha, tal como viene en la base;
+   si no hay dato de ese mes, se toma el más reciente anterior a ella. */
+function rankingBaseDeMes(persona, fecha){
   const r = rkDe(persona);
   if(!r || !fecha) return '';
-  const clave = fecha.getFullYear()+'-'+String(fecha.getMonth()+1).padStart(2,'0');
+  const clave = claveMes(fecha);
   if(r.meses.has(clave)) return r.meses.get(clave);
   const antes = [...r.meses.keys()].filter(k=>k <= clave).sort();
   return antes.length ? r.meses.get(antes[antes.length-1]) : '';
+}
+
+/* PLATINO no viene en la base, se calcula: quien es Oro en el mes y en los
+   3 meses completos anteriores hizo 60 instalaciones o más (20 por mes en
+   promedio) es Platino ese mes. */
+const PLATINO = {base:'oro', meses:3, inst:60};
+
+/* Cuentas instaladas por persona y por mes, con todo lo descargado
+   (lo propio y lo del equipo), sin contar dos veces la misma cuenta */
+let _ipmIx = null, _ipmA = null, _ipmB = null;
+function instPorMes(){
+  if(_ipmIx && _ipmA === FILAS && _ipmB === EQ_FILAS) return _ipmIx;
+  const ix = new Map();
+  [EQ_FILAS, FILAS].forEach(lista=>(lista||[]).forEach(f=>{
+    if(!fechaReal(f.instalacion)) return;
+    const k = claveNum(f.homologado), mes = claveMes(f.instalacion);
+    if(!ix.has(k)) ix.set(k, new Map());
+    const m = ix.get(k);
+    if(!m.has(mes)) m.set(mes, new Set());
+    m.get(mes).add(String(f.cuenta));
+  }));
+  _ipmIx = ix; _ipmA = FILAS; _ipmB = EQ_FILAS;
+  return ix;
+}
+
+function evaluarPlatino(persona, fecha){
+  const m = instPorMes().get(claveNum((persona && (persona.homologado||persona.numero))||'')) || new Map();
+  const meses = [];
+  for(let i = PLATINO.meses; i >= 1; i--){
+    const d = new Date(fecha.getFullYear(), fecha.getMonth()-i, 1);
+    meses.push({d, n:(m.get(claveMes(d))||new Set()).size});
+  }
+  const total = meses.reduce((s,x)=>s+x.n, 0);
+  return {meses, total, logra: total >= PLATINO.inst};
+}
+
+/* Ranking que aplica en el mes: el de la base, subido a Platino si califica */
+function rankingDeMes(persona, fecha){
+  const base = rankingBaseDeMes(persona, fecha);
+  if(norm(base) === PLATINO.base && evaluarPlatino(persona, fecha).logra) return 'PLATINO';
+  return base;
 }
 
 /* Solo entra al árbol quien tiene un puesto con acceso. A quien queda
@@ -1244,6 +1306,7 @@ function pintarBarras(grupos, bonos){
 
 function claseRank(r){
   const n = norm(r);
+  if(n==='platino') return 'platino';
   if(n==='oro') return 'oro';
   if(n==='plata') return 'plata';
   if(n==='bronce') return 'bronce';
@@ -1389,11 +1452,18 @@ function pintarPlanesPago(filas){
 
 /* ==============================================================
    BONO SEMANAL
-   Oro 5 inst = $1,500 · Plata 4 = $1,000 · Bronce 3 = $500
+   Oro/Platino 5 inst = $1,500 · Plata 4 = $1,000 · Bronce 3 = $500
+   Bono mínimo: Oro/Platino con 4 inst = $1,000
    Condicionado y Entrenamiento no participan.
    Se paga el jueves de la semana siguiente a la instalación.
    ============================================================== */
-const METAS = { oro:{meta:5,monto:1500}, plata:{meta:4,monto:1000}, bronce:{meta:3,monto:500} };
+const MINIMO_ALTO = {meta:4,monto:1000};   // Oro y Platino: si no llegan a 5, con 4 cobran el mínimo
+const METAS = {
+  oro:    {meta:5,monto:1500,minimo:MINIMO_ALTO},
+  platino:{meta:5,monto:1500,minimo:MINIMO_ALTO},
+  plata:  {meta:4,monto:1000},
+  bronce: {meta:3,monto:500}
+};
 
 function rankingDominante(filas){
   const c = new Map();
@@ -1413,12 +1483,43 @@ function bonoSemana(filas){
   const m = METAS[norm(ranking)];
   const inst = filas.length;
   if(!m) return {participa:false, ranking, mezclado, inst};
+  /* tipo: 'completo' (meta llena), 'minimo' (Oro/Platino con 4) o null.
+     monto es lo ganado; si no se ganó nada, lo que paga la meta completa */
+  const tipo = inst>=m.meta ? 'completo'
+             : (m.minimo && inst>=m.minimo.meta ? 'minimo' : null);
   return {
-    participa:true, ranking, mezclado, inst,
-    meta:m.meta, monto:m.monto,
-    logrado: inst>=m.meta,
-    faltan: Math.max(0, m.meta-inst)
+    participa:true, ranking, mezclado, inst, tipo,
+    meta:m.meta, montoMeta:m.monto, minimo:m.minimo||null,
+    monto: tipo==='minimo' ? m.minimo.monto : m.monto,
+    logrado: !!tipo,
+    faltan: Math.max(0, m.meta-inst),
+    faltanMin: m.minimo ? Math.max(0, m.minimo.meta-inst) : 0
   };
+}
+
+/* Por qué se es (o no) Platino: instalaciones de los 3 meses completos previos */
+function notaPlatino(persona, fecha, ranking){
+  const r = norm(ranking);
+  if(r !== 'platino' && r !== PLATINO.base) return '';
+  const p = evaluarPlatino(persona, fecha);
+  const meses = p.meses.map(x=>MESES_C[x.d.getMonth()]+' <b>'+x.n+'</b>').join(' · ');
+  return '<div class="cuando">'
+    + (r === 'platino'
+        ? '<span class="txtPlat">Platino</span>: eres Oro y en los 3 meses anteriores hiciste <b>'+p.total+'</b> instalaciones (mínimo '+PLATINO.inst+').'
+        : 'Para <span class="txtPlat">Platino</span>: en los 3 meses anteriores hiciste <b>'+p.total+' de '+PLATINO.inst+'</b> instalaciones.')
+    + '<br>'+meses+'</div>';
+}
+
+/* Escalones del bono para Oro/Platino: mínimo con 4, completo con 5 */
+function escalonesBono(b){
+  if(!b.minimo) return '';
+  const paso = (cumple, meta, monto, txt, cls) =>
+    '<span class="escalon '+cls+(cumple?' si':'')+'">'+(cumple?'✓ ':'')
+    + '<b>'+meta+'</b> inst · <b>'+pesos(monto)+'</b> <em>'+txt+'</em></span>';
+  return '<div class="escalones">'
+    + paso(b.inst>=b.minimo.meta, b.minimo.meta, b.minimo.monto, 'Bono mínimo', 'min')
+    + paso(b.inst>=b.meta, b.meta, b.montoMeta, 'Bono completo', 'comp')
+    + '</div>';
 }
 
 /* Bonos ganados, colocados en la semana o mes en que se pagan
@@ -1483,8 +1584,10 @@ function pintarBonoSemana(grupo){
   const yaPaso = pago < new Date();
   const semPago = semanaDe(pago);
   const abierta = new Date() <= sem.fin;      // la semana aún no cierra
-  caja.className = 'bono ' + (!b.participa ? 'fuera' : (b.logrado ? 'gano' : 'falta'));
+  caja.className = 'bono ' + (!b.participa ? 'fuera'
+                 : (b.tipo==='completo' ? 'gano' : (b.tipo==='minimo' ? 'minimo' : 'falta')));
 
+  const faltanTxt = n => n===1 ? 'falta 1 instalación' : 'faltan '+n+' instalaciones';
   let cuerpo;
   if(!b.participa){
     cuerpo = '<div class="monto">Sin bono esta semana</div>'
@@ -1492,12 +1595,21 @@ function pintarBonoSemana(grupo){
            + ' no participas en el bono semanal.</div>';
   }else{
     const avance = Math.min(100,(b.inst/b.meta)*100);
+    let estado;
+    if(b.tipo==='completo')      estado = abierta ? 'Meta alcanzada' : 'Bono ganado';
+    else if(b.tipo==='minimo')   estado = abierta
+        ? 'Bono mínimo asegurado · con '+b.faltan+' más sube a '+pesos(b.montoMeta)
+        : 'Bono mínimo ganado · te '+faltanTxt(b.faltan)+' para el de '+pesos(b.montoMeta);
+    else if(b.minimo)            estado = 'Te '+faltanTxt(b.faltanMin)+' para el bono mínimo de '+pesos(b.minimo.monto);
+    else                         estado = 'Te '+faltanTxt(b.faltan);
+    /* Marca en la barra donde empieza el bono mínimo */
+    const marca = b.minimo
+        ? '<i class="marcaMin" style="left:'+((b.minimo.meta/b.meta)*100)+'%"></i>' : '';
     cuerpo = '<div class="monto">'+pesos(b.monto)+'</div>'
-           + '<div class="estado">'+(b.logrado
-               ? (abierta ? 'Meta alcanzada' : 'Bono ganado')
-               : 'Te '+(b.faltan===1?'falta 1 instalación':'faltan '+b.faltan+' instalaciones'))+'</div>'
-           + '<div class="medida"><span style="width:'+avance+'%"></span></div>'
+           + '<div class="estado">'+estado+'</div>'
+           + '<div class="medida"><span style="width:'+avance+'%"></span>'+marca+'</div>'
            + '<div class="conteo"><b>'+b.inst+'</b> de <b>'+b.meta+'</b> instalaciones · meta de '+esc(b.ranking)+'</div>'
+           + escalonesBono(b)
            + '<div class="cuando">'+(b.logrado
                ? (yaPaso?'Se pagó el ':'Se paga el ')
                : 'Se pagaría el ')+'<b>'+enLetra(pago)+'</b>'
@@ -1507,9 +1619,10 @@ function pintarBonoSemana(grupo){
                : '');
   }
 
-  caja.innerHTML = '<div class="top"><span class="rot">Bono semanal</span>'
+  caja.innerHTML = '<div class="top"><span class="rot">'+(b.tipo==='minimo'?'Bono mínimo':'Bono semanal')+'</span>'
                  + '<span class="rank '+claseRank(b.ranking)+'">'+esc(b.ranking)+'</span></div>'
                  + cuerpo
+                 + notaPlatino(sem.filas[0], sem.inicio, b.ranking)
                  + (b.mezclado ? '<div class="alerta" style="margin-top:11px">⚠ En esta semana tienes instalaciones con distinto ranking. Se tomó el que más se repite; confírmalo con Comisiones.</div>' : '');
   caja.classList.remove('oculto');
 }
@@ -1521,10 +1634,12 @@ function pintarBonoMes(grupo){
   const semanas = [...clavesDelMes].map(k=>ix.get(k)).filter(Boolean).sort((a,b)=>a.orden-b.orden);
   if(!semanas.length){ caja.classList.add('oculto'); return; }
 
-  let ganadas=0, total=0, participantes=0;
+  let ganadas=0, minimos=0, total=0, participantes=0;
   const fichas = semanas.map(s=>{
     const b = bonoSemana(s.filas);
     if(b.participa) participantes++;
+    if(b.tipo==='minimo'){ ganadas++; minimos++; total += b.monto;
+      return '<span class="ficha min">S'+s.numero+' · <b>'+pesos(b.monto)+'</b> mínimo</span>'; }
     if(b.participa && b.logrado){ ganadas++; total += b.monto;
       return '<span class="ficha si">S'+s.numero+' · <b>'+pesos(b.monto)+'</b></span>'; }
     return '<span class="ficha">S'+s.numero+' · '+(b.participa? b.inst+'/'+b.meta : 'sin bono')+'</span>';
@@ -1534,8 +1649,10 @@ function pintarBonoMes(grupo){
   caja.innerHTML = '<div class="top"><span class="rot">Bonos del mes</span></div>'
     + '<div class="monto">'+pesos(total)+'</div>'
     + '<div class="estado">'+ganadas+' de '+semanas.length
-    + (semanas.length===1?' semana con bono':' semanas con bono')+'</div>'
+    + (semanas.length===1?' semana con bono':' semanas con bono')
+    + (minimos ? ' · <span class="txtMin">'+minimos+(minimos===1?' fue bono mínimo':' fueron bono mínimo')+'</span>' : '')+'</div>'
     + '<div class="fichas">'+fichas+'</div>'
+    + (minimos ? '<div class="cuando"><span class="txtMin">Bono mínimo</span>: en Oro y Platino, si no llegas a 5 instalaciones pero haces 4, cobras '+pesos(MINIMO_ALTO.monto)+' en lugar de '+pesos(METAS.oro.monto)+'.</div>' : '')
     + (participantes<semanas.length
         ? '<div class="cuando">Las semanas sin meta corresponden a ranking Condicionado o Entrenamiento, que no participan en el bono.</div>'
         : '')
@@ -1627,7 +1744,7 @@ function pintarBonosDelPago(g){
         : pago.getFullYear()+'-PM'+String(pago.getMonth()+1).padStart(2,'0');
     if(clave !== g.clave) return;
     detalles.push({num:s.numero, ini:s.inicio, fin:s.fin, monto:b.monto,
-                   rank:b.ranking, inst:b.inst, meta:b.meta, pago});
+                   rank:b.ranking, inst:b.inst, meta:b.meta, tipo:b.tipo, pago});
   });
   if(!detalles.length){ caja.classList.add('oculto'); return; }
   detalles.sort((a,b)=>a.ini-b.ini);
@@ -1638,7 +1755,8 @@ function pintarBonosDelPago(g){
     + '<span class="rank '+claseRank(detalles[0].rank)+'">'+esc(detalles[0].rank)+'</span></div>'
     + '<div class="monto">'+pesos(total)+'</div>'
     + detalles.map(d=>
-        '<div class="cuando">Meta lograda en la <b>Semana '+d.num+'</b> ('+corta(d.ini)+' al '+corta(d.fin)+' '+d.fin.getFullYear()+') '
+        '<div class="cuando">'+(d.tipo==='minimo' ? '<span class="txtMin">Bono mínimo</span> en la' : 'Meta lograda en la')
+        + ' <b>Semana '+d.num+'</b> ('+corta(d.ini)+' al '+corta(d.fin)+' '+d.fin.getFullYear()+') '
         + 'con <b>'+d.inst+' de '+d.meta+'</b> instalaciones · '+pesos(d.monto)
         + ' · se paga el <b>'+enLetra(d.pago)+'</b></div>').join('');
   caja.classList.remove('oculto');
@@ -1660,21 +1778,24 @@ function pintarBonosDelPagoEquipo(g){
         : pago.getFullYear()+'-PM'+String(pago.getMonth()+1).padStart(2,'0');
     if(clave !== g.clave) return;
     const kSem = s.clave;
-    if(!porSemana.has(kSem)) porSemana.set(kSem,{num:s.numero, ini:s.inicio, fin:s.fin, n:0, monto:0, pago});
-    const x = porSemana.get(kSem); x.n++; x.monto += b.monto;
+    if(!porSemana.has(kSem)) porSemana.set(kSem,{num:s.numero, ini:s.inicio, fin:s.fin, n:0, min:0, monto:0, pago});
+    const x = porSemana.get(kSem); x.n++; x.monto += b.monto; if(b.tipo==='minimo') x.min++;
   });
   const semanas = [...porSemana.values()].sort((a,b)=>a.ini-b.ini);
   if(!semanas.length){ caja.classList.add('oculto'); return; }
   const total = semanas.reduce((s,d)=>s+d.monto,0);
   const bonos = semanas.reduce((s,d)=>s+d.n,0);
+  const minimos = semanas.reduce((s,d)=>s+d.min,0);
   caja.className = 'bono gano';
   caja.innerHTML =
     '<div class="top"><span class="rot">Bonos del equipo en este pago</span></div>'
     + '<div class="monto">'+pesos(total)+'</div>'
-    + '<div class="estado">'+bonos+(bonos===1?' bono ganado':' bonos ganados')+'</div>'
+    + '<div class="estado">'+bonos+(bonos===1?' bono ganado':' bonos ganados')
+    + (minimos ? ' · <span class="txtMin">'+minimos+(minimos===1?' mínimo':' mínimos')+'</span>' : '')+'</div>'
     + semanas.map(d=>
         '<div class="cuando">Meta lograda en la <b>Semana '+d.num+'</b> ('+corta(d.ini)+' al '+corta(d.fin)+') · '
-        + '<b>'+d.n+'</b> '+(d.n===1?'persona':'personas')+' · '+pesos(d.monto)
+        + '<b>'+d.n+'</b> '+(d.n===1?'persona':'personas')
+        + (d.min ? ' (<span class="txtMin">'+d.min+' con bono mínimo</span>)' : '')+' · '+pesos(d.monto)
         + ' · se paga el <b>'+enLetra(d.pago)+'</b></div>').join('');
   caja.classList.remove('oculto');
 }
@@ -1835,14 +1956,14 @@ function bonosDe(filasPeriodo){
   const ix = indicePersonaSemana();
   const pares = new Set();
   filasPeriodo.forEach(f=>pares.add(f.homologado+'|'+sem(f).clave));
-  let gano=0, no=0, fuera=0, monto=0;
+  let gano=0, minimo=0, no=0, fuera=0, monto=0;
   pares.forEach(k=>{
     const b = bonoSemana(ix.get(k)||[]);
     if(!b.participa){ fuera++; return; }
-    if(b.logrado){ gano++; monto += b.monto; } else no++;
+    if(b.logrado){ gano++; monto += b.monto; if(b.tipo==='minimo') minimo++; } else no++;
   });
   const tot = gano+no+fuera;
-  return {gano, no, fuera, monto, total:tot,
+  return {gano, minimo, no, fuera, monto, total:tot,
           pGano: tot?(gano/tot)*100:0, pNo: tot?(no/tot)*100:0, pFuera: tot?(fuera/tot)*100:0};
 }
 
@@ -1850,7 +1971,7 @@ function bonosDe(filasPeriodo){
    Cuenta PERSONAS, no instalaciones: el ranking es del vendedor, no de la
    venta. A cada quien se le toma el ranking que traen sus instalaciones
    del periodo (el que más se repite si viniera mezclado). */
-const ORDEN_RANK = ['ORO','PLATA','BRONCE','CONDICIONADO','ENTRENAMIENTO'];
+const ORDEN_RANK = ['PLATINO','ORO','PLATA','BRONCE','CONDICIONADO','ENTRENAMIENTO'];
 /* Menor peso = más arriba en la lista. Lo que no cae en la escala va al final */
 const pesoRank = r => { const i = ORDEN_RANK.findIndex(x=>norm(x)===norm(r)); return i<0?99:i; };
 
@@ -1895,7 +2016,7 @@ function pintarRanking(filasPeriodo){
 
 function colorRank(r){
   const c = claseRank(r);
-  return {oro:'#FFB020',plata:'#CFD6E6',bronce:'#C4763C',
+  return {platino:'#9FE8E0',oro:'#FFB020',plata:'#CFD6E6',bronce:'#C4763C',
           condicionado:'#4B3A8C',entrenamiento:'#1E5F8C'}[c] || '#3B2C72';
 }
 
@@ -1905,6 +2026,7 @@ function pintarEquipo(filasPeriodo){
   const personas = descendencia((FOCO||USUARIO).numero).length;
   $('eBonos').textContent = b.gano;
   $('eBonosNota').textContent = (b.monto ? pesos(b.monto)+' en bonos · ' : '')
+      + (b.minimo ? b.minimo+(b.minimo===1?' bono mínimo · ':' bonos mínimos · ') : '')
       + 'equipo de '+personas+(personas===1?' persona':' personas');
   $('eBarGano').style.width  = b.pGano+'%';
   $('eBarNo').style.width    = b.pNo+'%';
@@ -1957,7 +2079,8 @@ function pintarEquipo(filasPeriodo){
       +   '<div class="v">Cobrado<b>'+pesos(x.c.cobrado)+'</b></div>'
       +   '<div class="a">Por cobrar<b>'+pesos(x.c.porCobrar)+'</b></div>'
       +   '<div>Comisión generada<b>'+pesos(x.c.generado)+'</b></div>'
-      +   '<div class="v">Bonos ganados<b>'+x.b.gano+'</b></div>'
+      +   '<div class="v">Bonos ganados<b>'+x.b.gano
+      +     (x.b.minimo ? ' <small class="txtMin">· '+x.b.minimo+' mín</small>' : '')+'</b></div>'
       + '</div>';
     cont.appendChild(el);
   });
@@ -2167,7 +2290,10 @@ let _rkCache = null, _rkDe = null;
 function ultimoRanking(persona){
   /* La base histórica manda: es el ranking vigente, no el de la venta */
   const oficial = rkDe(persona);
-  if(oficial && oficial.ultimo) return oficial.ultimo;
+  if(oficial && oficial.ultimo){
+    const [a, m] = oficial.mesUltimo.split('-');
+    return rankingDeMes(persona, new Date(+a, +m-1, 1));   // ya trae la subida a Platino
+  }
   if(_rkDe !== EQ_FILAS){
     _rkCache = new Map(); _rkDe = EQ_FILAS;
     EQ_FILAS.forEach(f=>{
