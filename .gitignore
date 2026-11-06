@@ -1,0 +1,5 @@
+
+# Código de Apps Script: vive solo en esta carpeta y en el editor de Apps Script, nunca en GitHub
+*.gs
+appsscript.json
+.clasp.json
